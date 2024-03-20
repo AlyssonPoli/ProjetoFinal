@@ -1,0 +1,88 @@
+#include <SoftwareSerial.h>
+#include "BluetoothSerial.h"
+#include <WiFi.h>
+#include "ThingSpeak.h"
+
+SoftwareSerial mySerial(16, 17);
+String nome_bluetooth = "ESP32 - Grupo 5";
+const char* ssid = "wesley";
+const char* password = "abc123456";
+unsigned long myChannelNumber = 2450421;
+const char * myWriteAPIKey = "BW14Q4N5M9K8RQ7L";
+unsigned long lastTime = 0;
+unsigned long timerDelay = 1000;
+
+#define TEMPERATURA 33 
+#define UMIDADE 32     
+
+#if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
+#error Bluetooth não está habilitado! Por favor, execute make menuconfig para habilitá-lo.
+#endif
+
+#if !defined(CONFIG_BT_SPP_ENABLED)
+#error Bluetooth Serial não disponível ou não habilitado. Disponível apenas para o chip ESP32.
+#endif
+
+BluetoothSerial SerialBT;
+WiFiClient client;
+
+void setup() {
+  Serial.begin(115200);
+  mySerial.begin(9600);
+  SerialBT.begin(nome_bluetooth);
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+  ThingSpeak.begin(client);
+}
+
+void loop() {
+  if (mySerial.available()) {
+    Serial.write(mySerial.read());
+  }
+  if (Serial.available()) {
+    mySerial.write(Serial.read());
+    SerialBT.write(Serial.read());
+  }
+  if (SerialBT.available()) {
+    String receivedString = SerialBT.readStringUntil('\n'); 
+    if (receivedString == "sos") { 
+      Serial.println("Comando SOS recebido via Bluetooth!");
+    }
+    mySerial.println(receivedString);
+  }
+  delay(30);
+
+  if ((millis() - lastTime) > timerDelay) {
+    if (WiFi.status() != WL_CONNECTED) {
+      Serial.print("Attempting to connect");
+      while (WiFi.status() != WL_CONNECTED) {
+        WiFi.begin(ssid, password);
+        delay(5000);
+      }
+      Serial.println("\nConnected.");
+    }
+  }
+
+  int ValorTemp = analogRead(TEMPERATURA);
+  int ValorUmi = analogRead(UMIDADE);
+
+  float x = map(ValorUmi, 0, 3900, 30, 80); 
+  float y = map(ValorTemp, 0, 3900, 17, 40); 
+
+  Serial.print("Umidade: ");
+  Serial.println(x);
+  Serial.print("Temperatura: ");
+  Serial.println(y);
+
+  ThingSpeak.setField(1, x);
+  ThingSpeak.setField(2, y);
+
+  int z = ThingSpeak.writeFields(myChannelNumber, myWriteAPIKey);
+  if (z == 200) {
+    Serial.println("Channel update successful.");
+  } else {
+    Serial.println("Problem updating channel. HTTP error code " + String(z));
+  }
+  lastTime = millis();
+  delay(15000);
+}
